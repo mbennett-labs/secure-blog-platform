@@ -1,0 +1,119 @@
+erDiagram
+    User {
+        id UUID PK
+        email String "unique"
+        passwordHash String
+        name String
+        role UserRole "enum"
+        profileImageUrl String
+        bio Text
+        createdAt DateTime
+        updatedAt DateTime
+        lastLogin DateTime
+        isVerified Boolean
+        isTwoFactorEnabled Boolean
+        status UserStatus "enum"
+    }
+    
+    Post {
+        id UUID PK
+        title String
+        slug String "unique"
+        content Text
+        excerpt String
+        featuredImageUrl String
+        status PostStatus "enum"
+        publishedAt DateTime
+        authorId UUID FK
+        viewCount Integer
+        createdAt DateTime
+        updatedAt DateTime
+    }
+    
+    Category {
+        id UUID PK
+        name String
+        slug String "unique"
+        description String
+        parentId UUID FK "self-reference"
+        createdAt DateTime
+        updatedAt DateTime
+    }
+    
+    Tag {
+        id UUID PK
+        name String "unique"
+        slug String "unique"
+        description String
+        createdAt DateTime
+        updatedAt DateTime
+    }
+    
+    Comment {
+        id UUID PK
+        content Text
+        authorId UUID FK
+        postId UUID FK
+        parentId UUID FK "self-reference"
+        status CommentStatus "enum"
+        createdAt DateTime
+        updatedAt DateTime
+    }
+    
+    Subscription {
+        id UUID PK
+        userId UUID FK
+        email String
+        status SubscriptionStatus "enum"
+        createdAt DateTime
+        updatedAt DateTime
+        verifiedAt DateTime
+    }
+    
+    Session {
+        id UUID PK
+        userId UUID FK
+        token String "unique"
+        ipAddress String
+        userAgent String
+        expiresAt DateTime
+        createdAt DateTime
+        revokedAt DateTime
+    }
+    
+    Notification {
+        id UUID PK
+        userId UUID FK
+        type NotificationType "enum"
+        message String
+        read Boolean
+        relatedEntityId UUID
+        relatedEntityType String
+        createdAt DateTime
+    }
+    
+    AuditLog {
+        id UUID PK
+        userId UUID FK
+        action String
+        entityType String
+        entityId UUID
+        ipAddress String
+        userAgent String
+        details JSON
+        createdAt DateTime
+    }
+    
+    User ||--o{ Post : "authors"
+    User ||--o{ Comment : "writes"
+    User ||--o{ Subscription : "subscribes"
+    User ||--o{ Session : "has"
+    User ||--o{ Notification : "receives"
+    User ||--o{ AuditLog : "generates"
+    
+    Post ||--o{ Comment : "has"
+    Post }o--o{ Category : "belongs to"
+    Post }o--o{ Tag : "has"
+    
+    Comment ||--o{ Comment : "replies to"
+    Category ||--o{ Category : "parent of"

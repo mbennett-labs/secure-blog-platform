@@ -1,0 +1,147 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:14-alpine
+    container_name: blog_db
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-blogdb}
+      POSTGRES_USER: ${POSTGRES_USER:-bloguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bloguser -d blogdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - blog_network
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:alpine
+    container_name: blog_redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - blog_network
+
+  # Backend API
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: blog_api
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bloguser}:${POSTGRES_PASSWORD:-changeme}@db:5432/${POSTGRES_DB:-blogdb}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-changeme}@redis:6379
+      JWT_SECRET: ${JWT_SECRET:-changeme}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-changeme}
+      PORT: 4000
+      CORS_ORIGIN: ${FRONTEND_URL:-https://yourdomain.com}
+    ports:
+      - "4000:4000"
+    networks:
+      - blog_network
+
+  # Frontend Next.js application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: blog_frontend
+    restart: always
+    depends_on:
+      - api
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${API_URL:-http://api:4000}
+    ports:
+      - "3000:3000"
+    networks:
+      - blog_network
+
+  # Nginx for reverse proxy, SSL termination, and static content
+  nginx:
+    image: nginx:alpine
+    container_name: blog_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf:/etc/nginx/conf.d
+      - ./nginx/ssl:/etc/nginx/ssl
+      - ./frontend/public:/var/www/html
+      - certbot_data:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    depends_on:
+      - frontend
+      - api
+    networks:
+      - blog_network
+
+  # Certbot for SSL certificate automation
+  certbot:
+    image: certbot/certbot
+    container_name: blog_certbot
+    volumes:
+      - certbot_data:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    depends_on:
+      - nginx
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+  # Backup service
+  backup:
+    image: postgres:14-alpine
+    container_name: blog_backup
+    restart: always
+    volumes:
+      - ./backups:/backups
+      - postgres_data:/var/lib/postgresql/data:ro
+    depends_on:
+      - db
+    command: >
+      /bin/sh -c '
+        while true; do
+          DATE=$$(date +%Y-%m-%d-%H-%M)
+          pg_dump -h db -U $$POSTGRES_USER $$POSTGRES_DB > /backups/backup-$$DATE.sql
+          find /backups -type f -name "backup-*.sql" -mtime +7 -delete
+          sleep 86400
+        done
+      '
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bloguser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-blogdb}
+    networks:
+      - blog_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  certbot_data:
+  certbot_certs:
+
+networks:
+  blog_network:
+    driver: bridge

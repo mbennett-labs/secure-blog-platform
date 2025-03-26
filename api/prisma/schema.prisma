@@ -1,0 +1,237 @@
+// api/prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model
+model User {
+  id                 String      @id @default(uuid())
+  email              String      @unique
+  passwordHash       String
+  name               String
+  profileImageUrl    String?
+  bio                String?     @db.Text
+  role               UserRole    @default(USER)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  lastLogin          DateTime?
+  isVerified         Boolean     @default(false)
+  verificationToken  String?
+  verifiedAt         DateTime?
+  isTwoFactorEnabled Boolean     @default(false)
+  twoFactorSecret    String?
+  resetToken         String?
+  resetTokenExpiry   DateTime?
+  status             UserStatus  @default(ACTIVE)
+
+  // Relations
+  posts           Post[]
+  comments        Comment[]
+  sessions        Session[]
+  notifications   Notification[]
+  subscriptions   Subscription[]
+  auditLogs       AuditLog[]
+}
+
+// Session model for token management
+model Session {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Blog post model
+model Post {
+  id               String     @id @default(uuid())
+  title            String
+  slug             String     @unique
+  content          String     @db.Text
+  excerpt          String?
+  featuredImageUrl String?
+  status           PostStatus @default(DRAFT)
+  publishedAt      DateTime?
+  authorId         String
+  viewCount        Int        @default(0)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  // Relations
+  author    User             @relation(fields: [authorId], references: [id])
+  comments  Comment[]
+  categories PostToCategory[]
+  tags      PostToTag[]
+}
+
+// Category model
+model Category {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  parentId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  parent     Category?        @relation("CategoryToCategory", fields: [parentId], references: [id])
+  children   Category[]       @relation("CategoryToCategory")
+  posts      PostToCategory[]
+}
+
+// Tag model
+model Tag {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  posts PostToTag[]
+}
+
+// PostToCategory for many-to-many relationship
+model PostToCategory {
+  postId     String
+  categoryId String
+  createdAt  DateTime @default(now())
+
+  // Relations
+  post     Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([postId, categoryId])
+}
+
+// PostToTag for many-to-many relationship
+model PostToTag {
+  postId    String
+  tagId     String
+  createdAt DateTime @default(now())
+
+  // Relations
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+}
+
+// Comment model
+model Comment {
+  id        String        @id @default(uuid())
+  content   String        @db.Text
+  authorId  String
+  postId    String
+  parentId  String?
+  status    CommentStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  // Relations
+  author   User      @relation(fields: [authorId], references: [id])
+  post     Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent   Comment?  @relation("CommentToComment", fields: [parentId], references: [id])
+  replies  Comment[] @relation("CommentToComment")
+}
+
+// Subscription model for newsletter or post updates
+model Subscription {
+  id         String             @id @default(uuid())
+  userId     String?
+  email      String
+  status     SubscriptionStatus @default(PENDING)
+  token      String?
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  verifiedAt DateTime?
+
+  // Relations
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+// Notification model
+model Notification {
+  id                String           @id @default(uuid())
+  userId            String
+  type              NotificationType
+  message           String
+  read              Boolean          @default(false)
+  relatedEntityId   String?
+  relatedEntityType String?
+  createdAt         DateTime         @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Audit log for tracking actions
+model AuditLog {
+  id            String   @id @default(uuid())
+  userId        String
+  action        String
+  entityType    String?
+  entityId      String?
+  ipAddress     String?
+  userAgent     String?
+  details       Json?
+  createdAt     DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Enums
+enum UserRole {
+  ADMIN
+  EDITOR
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum PostStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CommentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SPAM
+}
+
+enum SubscriptionStatus {
+  PENDING
+  ACTIVE
+  UNSUBSCRIBED
+}
+
+enum NotificationType {
+  COMMENT
+  MENTION
+  REPLY
+  SYSTEM
+  POST
+}
